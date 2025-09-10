@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>端末角度表示</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 30px;
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .angle-display {
+            font-size: 24px;
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border: 2px solid #e9ecef;
+        }
+        .angle-value {
+            font-weight: bold;
+            color: #007bff;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .supported {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .not-supported {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>端末角度表示</h1>
+        
+        
+        <div class="angle-display">
+            Alpha (Z軸): <span class="angle-value" id="alpha">--</span>°
+        </div>
+        <div class="angle-display">
+            Beta (X軸): <span class="angle-value" id="beta">--</span>°
+        </div>
+        <div class="angle-display">
+            Gamma (Y軸): <span class="angle-value" id="gamma">--</span>°
+        </div>
+        
+        <div id="status" class="status">センサーを確認中...</div>
+        <button id="requestButton" style="display:none; margin-top: 10px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+            センサーアクセスを許可
+        </button>
+    </div>
+
+    <script>
+        const alphaElement = document.getElementById('alpha');
+        const betaElement = document.getElementById('beta');
+        const gammaElement = document.getElementById('gamma');
+        const statusElement = document.getElementById('status');
+        const requestButton = document.getElementById('requestButton');
+
+        let ws = null;
+        let lastSentData = { alpha: null, beta: null, gamma: null };
+
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket disconnected');
+                setTimeout(initWebSocket, 1000);
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function sendOSCData(alpha, beta, gamma) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const data = {
+                    alpha: alpha,
+                    beta: beta,
+                    gamma: gamma
+                };
+                
+                if (data.alpha !== lastSentData.alpha || 
+                    data.beta !== lastSentData.beta || 
+                    data.gamma !== lastSentData.gamma) {
+                    
+                    ws.send(JSON.stringify(data));
+                    lastSentData = { ...data };
+                }
+            }
+        }
+
+        function updateAngles(event) {
+            const alpha = event.alpha ? parseFloat(event.alpha.toFixed(1)) : null;
+            const beta = event.beta ? parseFloat(event.beta.toFixed(1)) : null;
+            const gamma = event.gamma ? parseFloat(event.gamma.toFixed(1)) : null;
+
+            alphaElement.textContent = alpha !== null ? alpha : '--';
+            betaElement.textContent = beta !== null ? beta : '--';
+            gammaElement.textContent = gamma !== null ? gamma : '--';
+
+            if (alpha !== null && beta !== null && gamma !== null) {
+                sendOSCData(alpha, beta, gamma);
+            }
+        }
+
+        function handleOrientationEvent() {
+            statusElement.textContent = 'センサーが利用可能です';
+            statusElement.className = 'status supported';
+        }
+
+        function handleNotSupported() {
+            statusElement.textContent = 'このデバイスでは方向センサーが利用できません';
+            statusElement.className = 'status not-supported';
+        }
+
+        async function requestPermission() {
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission === 'granted') {
+                        window.addEventListener('deviceorientation', updateAngles);
+                        handleOrientationEvent();
+                        requestButton.style.display = 'none';
+                    } else {
+                        statusElement.textContent = 'センサーアクセスが拒否されました';
+                        statusElement.className = 'status not-supported';
+                    }
+                } catch (error) {
+                    handleNotSupported();
+                }
+            }
+        }
+
+        initWebSocket();
+
+        if (window.DeviceOrientationEvent) {
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                statusElement.textContent = 'iOSデバイスです。センサーアクセス許可が必要です';
+                statusElement.className = 'status';
+                requestButton.style.display = 'block';
+                requestButton.addEventListener('click', requestPermission);
+            } else {
+                window.addEventListener('deviceorientation', updateAngles);
+                setTimeout(() => {
+                    if (alphaElement.textContent === '--') {
+                        handleNotSupported();
+                    } else {
+                        handleOrientationEvent();
+                    }
+                }, 1000);
+            }
+        } else {
+            handleNotSupported();
+        }
+    </script>
+</body>
+</html>
